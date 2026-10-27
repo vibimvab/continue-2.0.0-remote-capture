@@ -177,6 +177,7 @@ describe("remote terminal output capture", () => {
     f.terminal.shellIntegration.executeCommand.mockImplementation(() => ({
       async *read() {
         yield "still running";
+        await new Promise(() => {});
       },
     }));
     const result = expect(f.run()).rejects.toThrow("timed out");
@@ -184,6 +185,51 @@ describe("remote terminal output capture", () => {
     await result;
     expect(f.terminal.dispose).toHaveBeenCalledOnce();
     expect(f.end.listeners.size + f.close.listeners.size).toBe(0);
+  });
+
+  it("returns output when the stream ends but the exit event never arrives", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    f.terminal.shellIntegration.executeCommand.mockImplementation(() => ({
+      async *read() {
+        yield "CONTINUE_TEST\r\n";
+      },
+    }));
+    const result = f.run();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await result).toEqual({
+      output: "CONTINUE_TEST\r\n",
+      completed: true,
+      exitCode: undefined,
+    });
+    expect(f.terminal.dispose).toHaveBeenCalledOnce();
+    expect(f.end.listeners.size + f.close.listeners.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps the deadline active when an exit event arrives but the stream stays open", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    f.terminal.shellIntegration.executeCommand.mockImplementation(() => {
+      const execution = {
+        async *read() {
+          yield "CONTINUE_TEST\r\n";
+          f.end.fire({
+            terminal: f.terminal as unknown as Terminal,
+            execution,
+            exitCode: 0,
+          });
+          await new Promise(() => {});
+        },
+      };
+      return execution;
+    });
+    const result = expect(f.run()).rejects.toThrow("timed out");
+    await vi.advanceTimersByTimeAsync(120_000);
+    await result;
+    expect(f.terminal.dispose).toHaveBeenCalledOnce();
+    expect(f.end.listeners.size + f.close.listeners.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("reports a terminal closed during execution", async () => {

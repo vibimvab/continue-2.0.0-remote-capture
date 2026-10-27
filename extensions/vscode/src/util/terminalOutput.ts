@@ -86,6 +86,7 @@ export async function captureTerminalCommand(
 
   const subscriptions: Disposable[] = [];
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let exitEventGrace: ReturnType<typeof setTimeout> | undefined;
   let keepTerminal = false;
   try {
     const integration = window.onDidEndTerminalShellExecution
@@ -105,13 +106,19 @@ export async function captureTerminalCommand(
     let execution: ShellExecution;
     // Register before executeCommand, and read immediately afterward as required
     // by the VS Code API. Exit codes arrive on the completion event, not read().
-    const completion = new Promise<number | undefined>((resolve, reject) => {
+    const completion = new Promise<number | undefined>((resolve) => {
       subscriptions.push(
         window.onDidEndTerminalShellExecution!((event) => {
           if (event.execution === execution && event.terminal === terminal) {
             resolve(event.exitCode);
           }
         }),
+      );
+    });
+    // Cover the entire capture operation. Rejecting the completion promise alone
+    // cannot interrupt a hung read after that promise has already resolved.
+    const interrupted = new Promise<never>((_resolve, reject) => {
+      subscriptions.push(
         window.onDidCloseTerminal((closed) => {
           if (closed === terminal) {
             reject(new Error("Terminal closed before command completed"));
@@ -124,19 +131,32 @@ export async function captureTerminalCommand(
     });
 
     execution = integration.executeCommand(command);
-    const readOutput = async () => {
+    const collectResult = async (): Promise<TerminalCommandResult> => {
       let output = "";
       for await (const chunk of execution.read()) {
         output += chunk;
       }
+      // read() ends when execution finishes. Allow the exit event to follow the
+      // final output, but do not wait another two minutes if that event is lost.
+      // Report an unknown exit code rather than inventing a successful one.
+      const exitCode = await Promise.race([
+        completion,
+        new Promise<undefined>((resolve) => {
+          exitEventGrace = setTimeout(() => resolve(undefined), 1_000);
+        }),
+      ]);
       // Remove only complete VS Code OSC 633 markers (BEL or ST terminated).
       // Preserve ANSI colors and ordinary text containing "]633;".
-      return output.replace(/\x1b\]633;[^\x07\x1b]*(?:\x07|\x1b\\)/g, "");
+      return {
+        output: output.replace(/\x1b\]633;[^\x07\x1b]*(?:\x07|\x1b\\)/g, ""),
+        exitCode,
+        completed: true,
+      };
     };
-    const [output, exitCode] = await Promise.all([readOutput(), completion]);
-    return { output, exitCode, completed: true };
+    return await Promise.race([collectResult(), interrupted]);
   } finally {
     clearTimeout(timeout);
+    clearTimeout(exitEventGrace);
     subscriptions.forEach((subscription) => subscription.dispose());
     if (!keepTerminal) {
       terminal.dispose();
