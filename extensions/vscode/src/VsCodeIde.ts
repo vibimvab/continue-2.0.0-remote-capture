@@ -14,6 +14,10 @@ import {
 } from "./autocomplete/lsp";
 import { Repository } from "./otherExtensions/git";
 import { SecretStorage } from "./stubs/SecretStorage";
+import {
+  captureTerminalCommand,
+  ShellIntegrationWindow,
+} from "./util/terminalOutput";
 import { VsCodeIdeUtils } from "./util/ideUtils";
 import { getExtensionVersion, isExtensionPrerelease } from "./util/util";
 import { getExtensionUri, openEditorAndRevealRange } from "./util/vscode";
@@ -353,6 +357,23 @@ class VsCodeIde implements IDE {
     }
     terminal.show();
     terminal.sendText(command, false);
+  }
+
+  async runCommandWithOutput(
+    command: string,
+    cwd?: string,
+    waitForCompletion = true,
+  ) {
+    const terminal = vscode.window.createTerminal({
+      name: "Continue",
+      cwd: cwd ? vscode.Uri.parse(cwd) : undefined,
+    });
+    return captureTerminalCommand(
+      vscode.window as ShellIntegrationWindow,
+      terminal,
+      command,
+      waitForCompletion,
+    );
   }
 
   async saveFile(fileUri: string): Promise<void> {

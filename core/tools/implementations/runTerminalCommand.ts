@@ -102,7 +102,7 @@ const getColorEnv = () => ({
 // runs on the local machine. childProcess.spawn() executes on the extension
 // host, so for any remote workspace it would run commands on the wrong machine
 // (or fail with ENOENT when the local shell doesn't match the remote OS).
-// All remote types delegate to ide.runCommand() which routes through VS Code's
+// All remote types delegate to the IDE, which routes through VS Code's
 // integrated terminal and executes in the correct remote environment.
 const LOCAL_ONLY = ["", "local"];
 
@@ -553,9 +553,55 @@ export const runTerminalCommandImpl: ToolImpl = async (args, extras) => {
     }
   }
 
-  // For remote environments (SSH, WSL, Dev Container, Codespaces, etc.),
-  // delegate to VS Code's integrated terminal which handles remote execution.
-  // Note: output capture and waitForCompletion are not yet supported for remotes.
+  // JetBrains and older IDE implementations retain their existing terminal path.
+  if (ideInfo.ideType !== "jetbrains" && extras.ide.runCommandWithOutput) {
+    const workspaceDirs = await extras.ide.getWorkspaceDirs();
+    extras.onPartialOutput?.({
+      toolCallId,
+      contextItems: [
+        {
+          name: "Terminal",
+          description: "Terminal command output",
+          content: "",
+          status: "Running command on remote...",
+        },
+      ],
+    });
+    try {
+      const result = await extras.ide.runCommandWithOutput(
+        command,
+        workspaceDirs[0],
+        waitForCompletion,
+      );
+      const status = !result.completed
+        ? "Command executed"
+        : result.exitCode === 0
+          ? "Command completed"
+          : result.exitCode === undefined
+            ? "Command finished (exit code unavailable)"
+            : `Command failed with exit code ${result.exitCode}`;
+      return [
+        {
+          name: "Terminal",
+          description: "Terminal command output",
+          content: result.output,
+          status,
+        },
+      ];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return [
+        {
+          name: "Terminal",
+          description: "Terminal command output",
+          content: message,
+          status: `Command failed with: ${message}`,
+        },
+      ];
+    }
+  }
+
+  // IDEs without output capture still execute through their remote terminal.
   await extras.ide.runCommand(command);
   return [
     {

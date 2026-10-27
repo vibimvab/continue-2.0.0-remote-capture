@@ -785,6 +785,12 @@ export interface Thread {
 
 export type IdeType = "vscode" | "jetbrains";
 
+export interface TerminalCommandResult {
+  output: string;
+  completed: boolean;
+  exitCode?: number;
+}
+
 export interface IdeInfo {
   ideType: IdeType;
   name: string;
@@ -871,6 +877,12 @@ export interface IDE {
   getExternalUri?(uri: string): Promise<string>;
 
   runCommand(command: string, options?: TerminalOptions): Promise<void>;
+
+  runCommandWithOutput?(
+    command: string,
+    cwd?: string,
+    waitForCompletion?: boolean,
+  ): Promise<TerminalCommandResult>;
 
   saveFile(fileUri: string): Promise<void>;
 

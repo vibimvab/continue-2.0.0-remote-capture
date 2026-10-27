@@ -1,4 +1,4 @@
-import * as childProcess from "node:child_process";
+import childProcessDefault, * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -273,6 +273,116 @@ describe("runTerminalCommandImpl", () => {
     expect(mockRunCommand).toHaveBeenCalledWith("echo 'test'");
     expect(result[0].content).toContain("Command executed in remote terminal");
     expect(result[0].status).toBe("Command executed");
+  });
+
+  describe("remote output capture", () => {
+    it.each(["ssh", "wsl", "dev-container", "codespaces"])(
+      "captures output for %s without spawning locally",
+      async (remoteName) => {
+        const extras = createMockExtras({
+          remoteName,
+          onPartialOutput: mockOnPartialOutput,
+        });
+        const cwd = "vscode-remote://ssh-remote+host/home/user/project";
+        mockGetWorkspaceDirs.mockResolvedValue([cwd]);
+        const capture = vi.fn().mockResolvedValue({
+          output: "remote output",
+          completed: true,
+          exitCode: 0,
+        });
+        extras.ide.runCommandWithOutput = capture;
+        const spawn = vi.spyOn(childProcessDefault, "spawn");
+        try {
+          const result = await runTerminalCommandImpl(
+            { command: "echo remote" },
+            extras,
+          );
+          expect(capture).toHaveBeenCalledExactlyOnceWith(
+            "echo remote",
+            cwd,
+            true,
+          );
+          expect(result[0]).toMatchObject({
+            content: "remote output",
+            status: "Command completed",
+          });
+          expect(mockRunCommand).not.toHaveBeenCalled();
+          expect(spawn).not.toHaveBeenCalled();
+          expect(mockOnPartialOutput).toHaveBeenCalled();
+        } finally {
+          spawn.mockRestore();
+        }
+      },
+    );
+
+    it.each([
+      [
+        { output: "failure", completed: true, exitCode: 2 },
+        "Command failed with exit code 2",
+      ],
+      [
+        { output: "unknown", completed: true },
+        "Command finished (exit code unavailable)",
+      ],
+      [{ output: "Output unavailable", completed: false }, "Command executed"],
+    ])(
+      "reports capture result %j accurately",
+      async (captureResult, status) => {
+        const extras = createMockExtras({ remoteName: "ssh" });
+        extras.ide.runCommandWithOutput = vi
+          .fn()
+          .mockResolvedValue(captureResult);
+        const result = await runTerminalCommandImpl(
+          { command: "test" },
+          extras,
+        );
+        expect(result[0]).toMatchObject({
+          content: captureResult.output,
+          status,
+        });
+        expect(mockRunCommand).not.toHaveBeenCalled();
+      },
+    );
+
+    it("passes background mode and an absent workspace through", async () => {
+      const extras = createMockExtras({ remoteName: "ssh" });
+      mockGetWorkspaceDirs.mockResolvedValue([]);
+      const capture = vi
+        .fn()
+        .mockResolvedValue({ output: "sent", completed: false });
+      extras.ide.runCommandWithOutput = capture;
+      await runTerminalCommandImpl(
+        { command: "server", waitForCompletion: false },
+        extras,
+      );
+      expect(capture).toHaveBeenCalledExactlyOnceWith(
+        "server",
+        undefined,
+        false,
+      );
+    });
+
+    it("reports capture errors without rerunning a potentially executed command", async () => {
+      const extras = createMockExtras({ remoteName: "ssh" });
+      extras.ide.runCommandWithOutput = vi
+        .fn()
+        .mockRejectedValue(new Error("Terminal closed"));
+      const result = await runTerminalCommandImpl({ command: "test" }, extras);
+      expect(result[0].status).toBe("Command failed with: Terminal closed");
+      expect(mockRunCommand).not.toHaveBeenCalled();
+    });
+
+    it("preserves the JetBrains terminal path", async () => {
+      const extras = createMockExtras({ remoteName: "ssh" });
+      mockGetIdeInfo.mockResolvedValue({
+        ideType: "jetbrains",
+        remoteName: "ssh",
+      });
+      extras.ide.runCommandWithOutput = vi.fn();
+      await runTerminalCommandImpl({ command: "test" }, extras);
+      expect(mockRunCommand).toHaveBeenCalledExactlyOnceWith("test");
+      expect(extras.ide.runCommandWithOutput).not.toHaveBeenCalled();
+    });
   });
 
   it("should handle errors when executing invalid commands", async () => {

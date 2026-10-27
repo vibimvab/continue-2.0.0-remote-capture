@@ -700,6 +700,12 @@ declare global {
     getExternalUri?(uri: string): Promise<string>;
   
     runCommand(command: string): Promise<void>;
+
+    runCommandWithOutput?(
+      command: string,
+      cwd?: string,
+      waitForCompletion?: boolean,
+    ): Promise<{ output: string; completed: boolean; exitCode?: number }>;
   
     saveFile(filepath: string): Promise<void>;
   
