@@ -367,10 +367,11 @@ class VsCodeIde implements IDE {
     const terminal = vscode.window.createTerminal({
       name: "Continue",
       cwd: cwd ? vscode.Uri.parse(cwd) : undefined,
-      // Python's terminal auto-activation skips hidden extension terminals.
-      // Avoid injecting an activation command into a pending shell execution.
-      hideFromUser: waitForCompletion,
+      hideFromUser: false,
     });
+    if (waitForCompletion) {
+      terminal.show(true);
+    }
     return captureTerminalCommand(
       vscode.window as ShellIntegrationWindow,
       terminal,

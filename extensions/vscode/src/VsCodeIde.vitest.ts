@@ -22,8 +22,9 @@ vi.mock("./util/terminalOutput", () => ({ captureTerminalCommand: vi.fn() }));
 beforeEach(() => vi.resetAllMocks());
 
 describe("VS Code terminal capture creation", () => {
-  it("hides foreground terminals from Python auto-activation and preserves the remote cwd", async () => {
-    const terminal = {} as vscode.Terminal;
+  it("shows foreground terminals without stealing focus and preserves capture and the remote cwd", async () => {
+    const show = vi.fn();
+    const terminal = { show } as unknown as vscode.Terminal;
     const result = { output: "CONTINUE_TEST", completed: true, exitCode: 0 };
     vi.mocked(vscode.window.createTerminal).mockReturnValue(terminal);
     vi.mocked(captureTerminalCommand).mockResolvedValue(result);
@@ -35,8 +36,9 @@ describe("VS Code terminal capture creation", () => {
     expect(vscode.window.createTerminal).toHaveBeenCalledWith({
       name: "Continue",
       cwd: vscode.Uri.parse(cwd),
-      hideFromUser: true,
+      hideFromUser: false,
     });
+    expect(show).toHaveBeenCalledExactlyOnceWith(true);
     expect(captureTerminalCommand).toHaveBeenCalledWith(
       vscode.window,
       terminal,
