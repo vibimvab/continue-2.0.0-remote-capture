@@ -3,6 +3,7 @@ import type { Event, Terminal } from "vscode";
 import {
   captureTerminalCommand,
   ShellIntegrationWindow,
+  waitForTerminalStartup,
 } from "./terminalOutput";
 
 function emitter<T>() {
@@ -75,6 +76,79 @@ function fixture(
 }
 
 afterEach(() => vi.useRealTimers());
+
+describe("terminal startup grace period", () => {
+  it("waits three seconds even when shell integration is already ready", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const ready = vi.fn();
+    const result = waitForTerminalStartup(
+      f.window,
+      f.terminal as unknown as Terminal,
+    ).then(ready);
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(ready).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await result;
+    expect(ready).toHaveBeenCalledOnce();
+    expect(f.close.listeners.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("allows a delayed activation command to finish before dispatch", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const activation = vi.fn();
+    setTimeout(activation, 1_000);
+    const result = waitForTerminalStartup(
+      f.window,
+      f.terminal as unknown as Terminal,
+    ).then(() => {
+      expect(activation).toHaveBeenCalledOnce();
+      f.terminal.sendText("true", true);
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(f.terminal.sendText).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await result;
+    expect(f.terminal.sendText).toHaveBeenCalledExactlyOnceWith("true", true);
+  });
+
+  it("cancels the wait and removes listeners when the terminal closes", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const result = expect(
+      waitForTerminalStartup(f.window, f.terminal as unknown as Terminal),
+    ).rejects.toThrow("Terminal closed");
+    f.close.fire(f.terminal as unknown as Terminal);
+    await result;
+    expect(f.close.listeners.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("ignores other terminals closing", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const result = waitForTerminalStartup(
+      f.window,
+      f.terminal as unknown as Terminal,
+    );
+    f.close.fire({} as Terminal);
+    await vi.advanceTimersByTimeAsync(3_000);
+    await expect(result).resolves.toBeUndefined();
+  });
+
+  it("does not wait on an already closed terminal", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    Object.assign(f.terminal, { exitStatus: { code: 0 } });
+    await expect(
+      waitForTerminalStartup(f.window, f.terminal as unknown as Terminal),
+    ).rejects.toThrow("Terminal closed");
+    expect(f.close.listeners.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
 
 describe("remote terminal output capture", () => {
   it("collects all chunks, strips only OSC markers and preserves ANSI colors", async () => {

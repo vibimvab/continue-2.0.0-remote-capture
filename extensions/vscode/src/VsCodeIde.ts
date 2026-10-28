@@ -17,6 +17,7 @@ import { SecretStorage } from "./stubs/SecretStorage";
 import {
   captureTerminalCommand,
   ShellIntegrationWindow,
+  waitForTerminalStartup,
 } from "./util/terminalOutput";
 import { VsCodeIdeUtils } from "./util/ideUtils";
 import { getExtensionVersion, isExtensionPrerelease } from "./util/util";
@@ -369,8 +370,12 @@ class VsCodeIde implements IDE {
       cwd: cwd ? vscode.Uri.parse(cwd) : undefined,
       hideFromUser: false,
     });
-    if (waitForCompletion) {
-      terminal.show(true);
+    terminal.show(true);
+    try {
+      await waitForTerminalStartup(vscode.window, terminal);
+    } catch (error) {
+      terminal.dispose();
+      throw error;
     }
     return captureTerminalCommand(
       vscode.window as ShellIntegrationWindow,
