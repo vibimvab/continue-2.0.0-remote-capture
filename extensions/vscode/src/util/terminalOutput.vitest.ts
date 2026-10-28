@@ -78,7 +78,7 @@ function fixture(
 afterEach(() => vi.useRealTimers());
 
 describe("terminal startup grace period", () => {
-  it("waits three seconds even when shell integration is already ready", async () => {
+  it("waits one second even when shell integration is already ready", async () => {
     vi.useFakeTimers();
     const f = fixture();
     const ready = vi.fn();
@@ -86,7 +86,7 @@ describe("terminal startup grace period", () => {
       f.window,
       f.terminal as unknown as Terminal,
     ).then(ready);
-    await vi.advanceTimersByTimeAsync(2_999);
+    await vi.advanceTimersByTimeAsync(999);
     expect(ready).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     await result;
@@ -99,7 +99,7 @@ describe("terminal startup grace period", () => {
     vi.useFakeTimers();
     const f = fixture();
     const activation = vi.fn();
-    setTimeout(activation, 1_000);
+    setTimeout(activation, 300);
     const result = waitForTerminalStartup(
       f.window,
       f.terminal as unknown as Terminal,
@@ -107,9 +107,9 @@ describe("terminal startup grace period", () => {
       expect(activation).toHaveBeenCalledOnce();
       f.terminal.sendText("true", true);
     });
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(500);
     expect(f.terminal.sendText).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(500);
     await result;
     expect(f.terminal.sendText).toHaveBeenCalledExactlyOnceWith("true", true);
   });
@@ -134,7 +134,7 @@ describe("terminal startup grace period", () => {
       f.terminal as unknown as Terminal,
     );
     f.close.fire({} as Terminal);
-    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(1_000);
     await expect(result).resolves.toBeUndefined();
   });
 

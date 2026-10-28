@@ -30,7 +30,7 @@ export interface ShellIntegrationWindow {
  * Other extensions (notably Python) asynchronously send activation commands to
  * newly opened terminals. Shell integration can be ready before that happens,
  * and VS Code exposes no public cross-extension activation-complete barrier.
- * Give startup commands a grace period before sending Continue's command.
+ * Give startup commands one second before sending Continue's command.
  */
 export function waitForTerminalStartup(
   window: Pick<ShellIntegrationWindow, "onDidCloseTerminal">,
@@ -40,7 +40,7 @@ export function waitForTerminalStartup(
     const timeout = setTimeout(() => {
       onClose.dispose();
       resolve();
-    }, 3_000);
+    }, 1_000);
     const onClose = window.onDidCloseTerminal((closed) => {
       if (closed === terminal) {
         clearTimeout(timeout);
